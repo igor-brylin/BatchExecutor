@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BatchExecutor.Extensions;
@@ -11,8 +10,8 @@ namespace BatchExecutor
 	public class BatchExecutor<TItem, TResult> : IBatchExecutor<TItem, TResult>
 	{
 		private readonly ConcurrentQueue<WorkItem<TItem, TResult>> _itemsQueue = new ConcurrentQueue<WorkItem<TItem, TResult>>();
-		private ManualResetEventSlim _resetEvent = new ManualResetEventSlim(true);
 		private readonly int _batchSize;
+		private readonly int _counterZeroingThreshold;
 		private readonly bool _flushBufferOnDispose;
 		private Timer _flushTimer;
 		private readonly Func<IList<TItem>, Task<IDictionary<TItem, TResult>>> _batchExecutor;
@@ -23,45 +22,56 @@ namespace BatchExecutor
 		public BatchExecutor(int batchSize, Func<IList<TItem>, Task<IDictionary<TItem, TResult>>> batchExecutor, TimeSpan bufferFlushInterval, bool flushBufferOnDispose = false)
 		{
 			_batchSize = batchSize;
+			_counterZeroingThreshold = int.MaxValue / _batchSize * _batchSize;
 			_flushBufferOnDispose = flushBufferOnDispose;
 			_batchExecutor = batchExecutor ?? throw new ArgumentNullException(nameof(batchExecutor));
 			_flushTimer = new Timer(BufferFlushCallback, null, bufferFlushInterval, bufferFlushInterval);
 		}
 
-		public Task<TResult> ExecAsync(TItem i)
+		public Task<TResult> ExecAsync(TItem item)
 		{
 			CheckDisposed();
 			var tcs = new TaskCompletionSource<TResult>();
-			ExecInternal(i, (exception, result) => ProcessResponse(tcs, exception, result));
+			ExecInternal(item, (exception, result) => ProcessResponse(tcs, exception, result));
 			return tcs.Task;
 		}
 
 		private void ExecInternal(TItem dataItem, Action<Exception, TResult> callback)
 		{
-			_resetEvent.Wait();
-			_itemsQueue.Enqueue(new WorkItem<TItem, TResult> { DataItem = dataItem, Callback = callback });
-			if (Interlocked.Increment(ref _counter) == _batchSize)
-				FlushBuffer();
+			EnqueItem(dataItem, callback);
+
+			if (Interlocked.Increment(ref _counter) % _batchSize == 0)
+				FlushBuffer(_batchSize);
 		}
 
-		private void FlushBuffer()
+		private void EnqueItem(TItem dataItem, Action<Exception, TResult> callback)
 		{
-			_resetEvent.Reset();
+			var currentCounter = _counter;
+			if (currentCounter == _counterZeroingThreshold)
+				Interlocked.CompareExchange(ref _counter, 0, currentCounter);
+			_itemsQueue.Enqueue(new WorkItem<TItem, TResult> { DataItem = dataItem, Callback = callback });
+		}
+
+		private void FlushBuffer(int flushSize)
+		{
 			var buffer = _buffersPool.GetOrCreate(() => new WorkItem<TItem, TResult>[_batchSize]);
 			var i = 0;
-			while (_itemsQueue.TryDequeue(out WorkItem<TItem, TResult> item) && i < _batchSize)
+			while (!_itemsQueue.IsEmpty && i < flushSize)
 			{
+				_itemsQueue.TryDequeue(out WorkItem<TItem, TResult> item);
 				buffer[i] = item;
 				i++;
 			}
-			Interlocked.Exchange(ref _counter, 0);
-			_resetEvent.Set();
 			ExecMulti(i, buffer);
 		}
 
 		private void ExecMulti(int bufferLength, WorkItem<TItem, TResult>[] buffer)
 		{
-			var arguments = buffer.Take(bufferLength).Select(wi => wi.DataItem).ToList(); // TODO [Igor Brylin]: пул буферов для аргументов.
+			var arguments = new TItem[bufferLength]; // TODO [Igor Brylin]: пул буферов для аргументов.
+			for (var i = 0; i < bufferLength; i++)
+			{
+				arguments[i] = buffer[i].DataItem;
+			}
 			_batchExecutor(arguments).ContinueWith(t =>
 												   {
 													   var faulted = t.Status == TaskStatus.Faulted;
@@ -99,8 +109,15 @@ namespace BatchExecutor
 
 		private void BufferFlushCallback(object state)
 		{
-			if (!_itemsQueue.IsEmpty)
-				FlushBuffer();
+			var queueSize = _itemsQueue.Count;
+			if (queueSize == 0)
+				return;
+
+			var batchSize = _batchSize;
+			if (queueSize > batchSize)
+				queueSize = batchSize;
+			Interlocked.Add(ref _counter, -queueSize);
+			FlushBuffer(queueSize);
 		}
 
 		private void CheckDisposed()
@@ -120,10 +137,7 @@ namespace BatchExecutor
 				_flushTimer = null;
 
 				if (_flushBufferOnDispose && !_itemsQueue.IsEmpty)
-					FlushBuffer();
-
-				_resetEvent.Dispose();
-				_resetEvent = null;
+					FlushBuffer(_batchSize);
 			}
 			_disposed = true;
 		}

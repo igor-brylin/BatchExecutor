@@ -5,6 +5,6 @@ namespace BatchExecutor
 {
 	public interface IBatchExecutor<in TItem, TResult> : IDisposable
 	{
-		Task<TResult> ExecAsync(TItem i);
+		Task<TResult> ExecAsync(TItem item);
 	}
 }
