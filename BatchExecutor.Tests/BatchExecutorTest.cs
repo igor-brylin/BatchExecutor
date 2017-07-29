@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -182,6 +183,61 @@ namespace BatchExecutor.Tests
 			{
 				Assert.AreEqual(kvp.Key.ToString(), kvp.Value);
 			}
+		}
+
+		[TestMethod]
+		public async Task ExecAsync_ManyTasks_AllCompletedSuccessfully()
+		{
+			var batchExecutor = new BatchExecutor<int, string>(157, ExecOnExternalStorageAsync, TimeSpan.FromMilliseconds(51));
+			var tasks = new List<Task>();
+			const int loopCount = 1800053;
+			var startCounter = 0;
+			var finishCounter = 0;
+			var sw = Stopwatch.StartNew();
+			try
+			{
+				for (var i = 1; i <= loopCount; i++)
+				{
+					//await ExecOnExternalStorageAsync(items);
+					var i1 = i;
+					tasks.Add(Task.Run(async () =>
+									   {
+										   Interlocked.Increment(ref startCounter);
+										   try
+										   {
+											   var result = await batchExecutor.ExecAsync(i1).ConfigureAwait(false);
+											   return result;
+										   }
+										   catch (Exception e)
+										   {
+											   Console.WriteLine(e);
+											   throw;
+										   }
+										   finally
+										   {
+											   Interlocked.Increment(ref finishCounter);
+										   }
+
+									   }));
+				}
+				await Task.WhenAll(tasks).ConfigureAwait(false);
+
+			}
+			catch (Exception e)
+			{
+				Console.WriteLine(e);
+				throw;
+			}
+			sw.Stop();
+			Console.WriteLine("Elapsed: {0}", sw.Elapsed);
+			Assert.AreEqual(startCounter, finishCounter);
+		}
+
+		private static async Task<IDictionary<int, string>> ExecOnExternalStorageAsync(IList<int> items)
+		{
+			await Task.Delay(158);
+			var dictionary = items.ToDictionary(i => i, i => "Result for " + i);
+			return dictionary;
 		}
 	}
 }

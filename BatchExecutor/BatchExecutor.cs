@@ -58,11 +58,18 @@ namespace BatchExecutor
 			var i = 0;
 			while (!_itemsQueue.IsEmpty && i < flushSize)
 			{
-				_itemsQueue.TryDequeue(out WorkItem<TItem, TResult> item);
+				DequeueItem(out WorkItem<TItem, TResult> item);
 				buffer[i] = item;
 				i++;
 			}
 			ExecMulti(i, buffer);
+		}
+
+		private void DequeueItem(out WorkItem<TItem, TResult> item)
+		{
+			var spinWait = new SpinWait();
+			while (!_itemsQueue.TryDequeue(out item))
+				spinWait.SpinOnce();
 		}
 
 		private void ExecMulti(int bufferLength, WorkItem<TItem, TResult>[] buffer)
