@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -158,7 +157,6 @@ namespace BatchExecutor.Tests
 		[TestMethod]
 		public async Task ExecAsync_LoadTesting_OK()
 		{
-			var concurrentDict = new ConcurrentDictionary<int, string>();
 			var batchExecutor = new BatchExecutor<int, string>(5, async items =>
 																  {
 																	  await Task.Delay(1);
@@ -173,16 +171,11 @@ namespace BatchExecutor.Tests
 				tasks.Add(Task.Run(async () =>
 								   {
 									   var result = await batchExecutor.ExecAsync(i1).ConfigureAwait(false);
-									   concurrentDict[i1] = result;
+									   Assert.AreEqual(i1.ToString(), result);
 									   return result;
 								   }));
 			}
 			await Task.WhenAll(tasks).ConfigureAwait(false);
-			Assert.AreEqual(loopCount, concurrentDict.Count);
-			foreach (var kvp in concurrentDict)
-			{
-				Assert.AreEqual(kvp.Key.ToString(), kvp.Value);
-			}
 		}
 
 		[TestMethod]
@@ -233,7 +226,7 @@ namespace BatchExecutor.Tests
 			Assert.AreEqual(startCounter, finishCounter);
 		}
 
-		private static async Task<IDictionary<int, string>> ExecOnExternalStorageAsync(IList<int> items)
+		private static async Task<IDictionary<int, string>> ExecOnExternalStorageAsync(IReadOnlyList<int> items)
 		{
 			await Task.Delay(158);
 			var dictionary = items.ToDictionary(i => i, i => "Result for " + i);

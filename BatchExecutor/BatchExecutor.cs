@@ -14,12 +14,13 @@ namespace BatchExecutor
 		private readonly int _counterZeroingThreshold;
 		private readonly bool _flushBufferOnDispose;
 		private Timer _flushTimer;
-		private readonly Func<IList<TItem>, Task<IDictionary<TItem, TResult>>> _batchExecutor;
+		private readonly Func<IReadOnlyList<TItem>, Task<IDictionary<TItem, TResult>>> _batchExecutor;
 		private int _counter;
 		private readonly IObjectsPool<WorkItem<TItem, TResult>[]> _buffersPool = new ObjectsPool<WorkItem<TItem, TResult>[]>();
+		private readonly IObjectsPool<TItem[]> _argumentsPool = new ObjectsPool<TItem[]>();
 		private volatile bool _disposed;
 
-		public BatchExecutor(int batchSize, Func<IList<TItem>, Task<IDictionary<TItem, TResult>>> batchExecutor, TimeSpan bufferFlushInterval, bool flushBufferOnDispose = false)
+		public BatchExecutor(int batchSize, Func<IReadOnlyList<TItem>, Task<IDictionary<TItem, TResult>>> batchExecutor, TimeSpan bufferFlushInterval, bool flushBufferOnDispose = false)
 		{
 			_batchSize = batchSize;
 			_counterZeroingThreshold = int.MaxValue / _batchSize * _batchSize;
@@ -74,32 +75,34 @@ namespace BatchExecutor
 
 		private void ExecMulti(int bufferLength, WorkItem<TItem, TResult>[] buffer)
 		{
-			var arguments = new TItem[bufferLength]; // TODO [Igor Brylin]: пул буферов для аргументов.
+			var arguments = _argumentsPool.GetOrCreate(() => new TItem[_batchSize]);
 			for (var i = 0; i < bufferLength; i++)
 			{
 				arguments[i] = buffer[i].DataItem;
 			}
-			_batchExecutor(arguments).ContinueWith(t =>
-												   {
-													   var faulted = t.Status == TaskStatus.Faulted;
-													   for (var i = 0; i < bufferLength; i++)
-													   {
-														   var workItem = buffer[i];
-														   if (faulted)
-														   {
-															   workItem.Callback(t.Exception.UnwrapAggregation(), default(TResult));
-														   }
-														   else if (!t.Result.TryGetValue(workItem.DataItem, out TResult result))
-														   {
-															   workItem.Callback(new KeyNotFoundException($"Record for {workItem.DataItem} not found."), default(TResult));
-														   }
-														   else
-														   {
-															   workItem.Callback(null, result);
-														   }
-													   }
-													   _buffersPool.Release(buffer);
-												   });
+			var argumentsSegment = new ArraySegment<TItem>(arguments, 0, bufferLength);
+			_batchExecutor(argumentsSegment).ContinueWith(t =>
+														 {
+															 var faulted = t.Status == TaskStatus.Faulted;
+															 for (var i = 0; i < bufferLength; i++)
+															 {
+																 var workItem = buffer[i];
+																 if (faulted)
+																 {
+																	 workItem.Callback(t.Exception.UnwrapAggregation(), default(TResult));
+																 }
+																 else if (!t.Result.TryGetValue(workItem.DataItem, out TResult result))
+																 {
+																	 workItem.Callback(new KeyNotFoundException($"Record for {workItem.DataItem} not found."), default(TResult));
+																 }
+																 else
+																 {
+																	 workItem.Callback(null, result);
+																 }
+															 }
+															 _buffersPool.Release(buffer);
+															 _argumentsPool.Release(arguments);
+														 });
 		}
 
 		private static void ProcessResponse(TaskCompletionSource<TResult> tcs, Exception e, TResult result)
