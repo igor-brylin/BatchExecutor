@@ -59,18 +59,11 @@ namespace BatchExecutor
 			var i = 0;
 			while (!_itemsQueue.IsEmpty && i < flushSize)
 			{
-				DequeueItem(out WorkItem<TItem, TResult> item);
+				_itemsQueue.TryDequeue(out WorkItem<TItem, TResult> item);
 				buffer[i] = item;
 				i++;
 			}
 			ExecMulti(i, buffer);
-		}
-
-		private void DequeueItem(out WorkItem<TItem, TResult> item)
-		{
-			var spinWait = new SpinWait();
-			while (!_itemsQueue.TryDequeue(out item))
-				spinWait.SpinOnce();
 		}
 
 		private void ExecMulti(int bufferLength, WorkItem<TItem, TResult>[] buffer)
@@ -119,15 +112,23 @@ namespace BatchExecutor
 
 		private void BufferFlushCallback(object state)
 		{
-			var queueSize = _itemsQueue.Count;
-			if (queueSize == 0)
-				return;
-
 			var batchSize = _batchSize;
-			if (queueSize > batchSize)
-				queueSize = batchSize;
-			Interlocked.Add(ref _counter, -queueSize);
-			FlushBuffer(queueSize);
+			var spinWait = new SpinWait();
+			while (true)
+			{
+				var counter = _counter;
+				var queueSize = counter % batchSize;
+				if (queueSize == 0)
+					return;
+
+				var newCounter = counter - queueSize;
+				if (Interlocked.CompareExchange(ref _counter, newCounter, counter) == counter)
+				{
+					FlushBuffer(queueSize);
+					return;
+				}
+				spinWait.SpinOnce();
+			}
 		}
 
 		private void CheckDisposed()
