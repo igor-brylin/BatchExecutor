@@ -179,6 +179,38 @@ namespace BatchExecutor.Tests
 		}
 
 		[TestMethod]
+		public async Task Dispose_QueueNotFull_FlushedSuccessfully()
+		{
+			var batchExecutor = new BatchExecutor<int, string>(50, async items =>
+																  {
+																	  await Task.Delay(10);
+																	  var dictionary = items.ToDictionary(i => i, i => i.ToString());
+																	  return dictionary;
+																  }, TimeSpan.FromHours(1));
+			var tasks = new List<Task<string>>();
+			const int loopCount = 11;
+			for (var i = 1; i <= loopCount; i++)
+			{
+				tasks.Add(batchExecutor.ExecAsync(i));
+			}
+			EnsureTaskStatus(loopCount, tasks, TaskStatus.WaitingForActivation, false);
+			batchExecutor.Dispose();
+			await Task.WhenAll(tasks).ConfigureAwait(false);
+			EnsureTaskStatus(loopCount, tasks, TaskStatus.RanToCompletion, true);
+		}
+
+		private static void EnsureTaskStatus(int loopCount, List<Task<string>> tasks, TaskStatus status, bool ensureResult)
+		{
+			for (int i = 0; i < loopCount; i++)
+			{
+				var task = tasks[i];
+				Assert.AreEqual(status, task.Status);
+				if(ensureResult)
+					Assert.AreEqual((i + 1).ToString(), task.Result);
+			}
+		}
+
+		[TestMethod]
 		public async Task ExecAsync_ManyTasks_AllCompletedSuccessfully()
 		{
 			var batchExecutor = new BatchExecutor<int, string>(157, ExecOnExternalStorageAsync, TimeSpan.FromMilliseconds(51));

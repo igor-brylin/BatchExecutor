@@ -12,19 +12,17 @@ namespace BatchExecutor
 		private readonly ConcurrentQueue<WorkItem<TItem, TResult>> _itemsQueue = new ConcurrentQueue<WorkItem<TItem, TResult>>();
 		private readonly int _batchSize;
 		private readonly int _counterZeroingThreshold;
-		private readonly bool _flushBufferOnDispose;
 		private Timer _flushTimer;
 		private readonly Func<IReadOnlyList<TItem>, Task<IDictionary<TItem, TResult>>> _batchExecutor;
 		private int _counter;
 		private readonly IObjectsPool<WorkItem<TItem, TResult>[]> _buffersPool = new ObjectsPool<WorkItem<TItem, TResult>[]>();
 		private readonly IObjectsPool<TItem[]> _argumentsPool = new ObjectsPool<TItem[]>();
-		private volatile bool _disposed;
+		private int _disposed;
 
-		public BatchExecutor(int batchSize, Func<IReadOnlyList<TItem>, Task<IDictionary<TItem, TResult>>> batchExecutor, TimeSpan bufferFlushInterval, bool flushBufferOnDispose = false)
+		public BatchExecutor(int batchSize, Func<IReadOnlyList<TItem>, Task<IDictionary<TItem, TResult>>> batchExecutor, TimeSpan bufferFlushInterval)
 		{
 			_batchSize = batchSize;
 			_counterZeroingThreshold = int.MaxValue / _batchSize * _batchSize;
-			_flushBufferOnDispose = flushBufferOnDispose;
 			_batchExecutor = batchExecutor ?? throw new ArgumentNullException(nameof(batchExecutor));
 			_flushTimer = new Timer(BufferFlushCallback, null, bufferFlushInterval, bufferFlushInterval);
 		}
@@ -39,13 +37,13 @@ namespace BatchExecutor
 
 		private void ExecInternal(TItem dataItem, Action<Exception, TResult> callback)
 		{
-			EnqueItem(dataItem, callback);
+			EnqueueItem(dataItem, callback);
 
 			if (Interlocked.Increment(ref _counter) % _batchSize == 0)
 				FlushBuffer(_batchSize);
 		}
 
-		private void EnqueItem(TItem dataItem, Action<Exception, TResult> callback)
+		private void EnqueueItem(TItem dataItem, Action<Exception, TResult> callback)
 		{
 			var currentCounter = _counter;
 			if (currentCounter == _counterZeroingThreshold)
@@ -57,9 +55,8 @@ namespace BatchExecutor
 		{
 			var buffer = _buffersPool.GetOrCreate(() => new WorkItem<TItem, TResult>[_batchSize]);
 			var i = 0;
-			while (!_itemsQueue.IsEmpty && i < flushSize)
+			while (_itemsQueue.TryDequeue(out WorkItem<TItem, TResult> item) && i < flushSize)
 			{
-				_itemsQueue.TryDequeue(out WorkItem<TItem, TResult> item);
 				buffer[i] = item;
 				i++;
 			}
@@ -133,24 +130,21 @@ namespace BatchExecutor
 
 		private void CheckDisposed()
 		{
-			if (_disposed)
+			if (_disposed == 1)
 				throw new ObjectDisposedException(GetType().FullName);
 		}
 
 		private void Dispose(bool disposing)
 		{
-			if (_disposed)
+			if (Interlocked.CompareExchange(ref _disposed, 1, 0) == 1)
 				return;
 
 			if (disposing)
 			{
 				_flushTimer.Dispose();
 				_flushTimer = null;
-
-				if (_flushBufferOnDispose && !_itemsQueue.IsEmpty)
-					FlushBuffer(_batchSize);
+				BufferFlushCallback(null);
 			}
-			_disposed = true;
 		}
 
 		public void Dispose()
