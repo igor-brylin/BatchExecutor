@@ -1,4 +1,19 @@
-﻿using System;
+﻿/*
+   Copyright 2017 Igor Brylin
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+ */
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
@@ -15,8 +30,8 @@ namespace BatchExecutor
 		private Timer _flushTimer;
 		private readonly Func<IReadOnlyList<TItem>, Task<IDictionary<TItem, TResult>>> _batchExecutor;
 		private int _counter;
-		private readonly IObjectsPool<WorkItem<TItem, TResult>[]> _buffersPool = new ObjectsPool<WorkItem<TItem, TResult>[]>();
-		private readonly IObjectsPool<TItem[]> _argumentsPool = new ObjectsPool<TItem[]>();
+		private readonly ObjectPool<WorkItem<TItem, TResult>[]> _buffersPool = new ObjectPool<WorkItem<TItem, TResult>[]>();
+		private readonly ObjectPool<TItem[]> _argumentsPool = new ObjectPool<TItem[]>();
 		private int _disposed;
 
 		public BatchExecutor(int batchSize, Func<IReadOnlyList<TItem>, Task<IDictionary<TItem, TResult>>> batchExecutor, TimeSpan bufferFlushInterval)
@@ -55,8 +70,10 @@ namespace BatchExecutor
 		{
 			var buffer = _buffersPool.GetOrCreate(() => new WorkItem<TItem, TResult>[_batchSize]);
 			var i = 0;
-			while (_itemsQueue.TryDequeue(out WorkItem<TItem, TResult> item) && i < flushSize)
+			while (!_itemsQueue.IsEmpty && i < flushSize)
 			{
+				// NOTE: don't move _itemsQueue.TryDequeue into while loop condition instead of _itemsQueue.IsEmpty. Otherwise, program may hangs.
+				_itemsQueue.TryDequeue(out WorkItem<TItem, TResult> item);
 				buffer[i] = item;
 				i++;
 			}
@@ -79,7 +96,7 @@ namespace BatchExecutor
 																 var workItem = buffer[i];
 																 if (faulted)
 																 {
-																	 workItem.Callback(t.Exception.UnwrapAggregation(), default(TResult));
+																	 workItem.Callback(t.Exception.UnwrapAggregateException(), default(TResult));
 																 }
 																 else if (!t.Result.TryGetValue(workItem.DataItem, out TResult result))
 																 {

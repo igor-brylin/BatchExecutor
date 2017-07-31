@@ -14,17 +14,25 @@
    limitations under the License.
  */
 using System;
+using System.Collections.Concurrent;
 
-namespace BatchExecutor.Extensions
+namespace BatchExecutor
 {
-	public static class ExceptionExtensions
+	internal class ObjectPool<T>
 	{
-		public static Exception UnwrapAggregateException(this Exception exception)
+		private readonly ConcurrentStack<T> _container = new ConcurrentStack<T>();
+
+		public T GetOrCreate(Func<T> objectFactory)
 		{
-			var aggregateException = exception as AggregateException;
-			if (aggregateException != null)
-				exception = aggregateException.Flatten().InnerException;
-			return exception;
+			if (!_container.TryPop(out T result))
+				result = objectFactory();
+
+			return result;
+		}
+
+		public void Release(T @object)
+		{
+			_container.Push(@object);
 		}
 	}
 }
