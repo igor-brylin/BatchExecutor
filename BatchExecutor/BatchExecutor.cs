@@ -30,8 +30,8 @@ namespace BatchExecutor
 		private Timer _flushTimer;
 		private readonly Func<IReadOnlyList<TItem>, Task<IDictionary<TItem, TResult>>> _batchExecutor;
 		private int _counter;
-		private readonly ObjectPool<WorkItem<TItem, TResult>[]> _buffersPool = new ObjectPool<WorkItem<TItem, TResult>[]>();
-		private readonly ObjectPool<TItem[]> _argumentsPool = new ObjectPool<TItem[]>();
+		private readonly ArrayPool<WorkItem<TItem, TResult>> _buffersPool = new ArrayPool<WorkItem<TItem, TResult>>();
+		private readonly ArrayPool<TItem> _argumentsPool = new ArrayPool<TItem>();
 		private int _disposed;
 
 		public BatchExecutor(int batchSize, Func<IReadOnlyList<TItem>, Task<IDictionary<TItem, TResult>>> batchExecutor, TimeSpan bufferFlushInterval)
@@ -68,7 +68,7 @@ namespace BatchExecutor
 
 		private void FlushBuffer(int flushSize)
 		{
-			var buffer = _buffersPool.GetOrCreate(() => new WorkItem<TItem, TResult>[_batchSize]);
+			var buffer = _buffersPool.GetOrCreate(_batchSize);
 			var i = 0;
 			while (!_itemsQueue.IsEmpty && i < flushSize)
 			{
@@ -82,7 +82,7 @@ namespace BatchExecutor
 
 		private void ExecMulti(int bufferLength, WorkItem<TItem, TResult>[] buffer)
 		{
-			var arguments = _argumentsPool.GetOrCreate(() => new TItem[_batchSize]);
+			var arguments = _argumentsPool.GetOrCreate(_batchSize);
 			for (var i = 0; i < bufferLength; i++)
 			{
 				arguments[i] = buffer[i].DataItem;

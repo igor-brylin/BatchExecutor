@@ -1,7 +1,15 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard1.4</TargetFramework>
+    <TargetFrameworks>netstandard1.4;netstandard1.5;netstandard1.6;netstandard2.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Version>1.0.1</Version>
+    <Authors>Igor Brylin</Authors>
+    <PackageLicense>https://raw.githubusercontent.com/igor-brylin/BatchExecutor/master/LICENSE</PackageLicense>
+    <PackageProjectUrl>https://github.com/igor-brylin/BatchExecutor/</PackageProjectUrl>
+    <Description>High performance library for accepting single requests, accumulate them and process them simultaneously in a batching manner.</Description>
+    <RepositoryUrl>https://github.com/igor-brylin/BatchExecutor/</RepositoryUrl>
+    <PackageTags>BatchExecutor batch async await performance</PackageTags>
   </PropertyGroup>
 
 </Project>
