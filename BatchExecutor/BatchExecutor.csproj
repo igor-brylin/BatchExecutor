@@ -3,13 +3,21 @@
   <PropertyGroup>
     <TargetFrameworks>netstandard1.4;netstandard1.5;netstandard1.6;netstandard2.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>Igor Brylin</Authors>
     <PackageLicense>https://raw.githubusercontent.com/igor-brylin/BatchExecutor/master/LICENSE</PackageLicense>
     <PackageProjectUrl>https://github.com/igor-brylin/BatchExecutor/</PackageProjectUrl>
     <Description>High performance library for accepting single requests, accumulate them and process them simultaneously in a batching manner.</Description>
     <RepositoryUrl>https://github.com/igor-brylin/BatchExecutor/</RepositoryUrl>
     <PackageTags>BatchExecutor batch async await performance</PackageTags>
+    <PackageLicenseUrl>https://raw.githubusercontent.com/igor-brylin/BatchExecutor/master/LICENSE</PackageLicenseUrl>
+    <PackageReleaseNotes>1.0.2
+- Fix task continuation execution. Now it executes on thread from thread pool. As a result, resources are released more quickly.
+- Add "void" style batch executor. As a result, there is no need to create map dictionary for operations like "fire and forget".
+
+1.0.1
+- Extend target framework list to all netstandard versions
+- fix potential memory leak on array pool</PackageReleaseNotes>
   </PropertyGroup>
 
 </Project>
