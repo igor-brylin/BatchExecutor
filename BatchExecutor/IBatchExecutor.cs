@@ -13,13 +13,19 @@
    See the License for the specific language governing permissions and
    limitations under the License.
  */
+
 using System;
 using System.Threading.Tasks;
 
 namespace BatchExecutor
 {
-	public interface IBatchExecutor<in TItem, TResult> : IDisposable
-	{
-		Task<TResult> ExecAsync(TItem item);
-	}
+    public interface IBatchExecutor<in TItem, TResult> : IDisposable
+    {
+        Task<TResult> ExecAsync(TItem item);
+    }
+
+    public interface IBatchExecutor<in TItem> : IDisposable
+    {
+        Task ExecAsync(TItem item);
+    }
 }
